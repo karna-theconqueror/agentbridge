@@ -1,0 +1,66 @@
+# AgentBridge — Agentic-AI Pilot-to-Production Accelerator
+
+A toolkit that takes a prototype LLM agent and makes it production-ready:
+**evaluation before deployment, guardrails during runtime, observability after.**
+
+Built as the portfolio project aligned to Tech Mahindra's "AI Delivered Right"
+strategy (see `TechMahindra_Project_Blueprint.pdf`).
+
+## Quick start (no API key needed)
+
+```bash
+python run_demo.py            # run the agent on sample tasks
+python run_evals.py           # run the golden eval suite (this is the CI gate)
+python -m pytest              # unit tests
+```
+
+The default provider is a deterministic **MockLLM** so everything runs offline.
+Drop in a real model by setting an env var:
+
+```bash
+# Windows (PowerShell)
+$env:OPENAI_API_KEY = "sk-..."
+python run_demo.py            # auto-detects the key and switches provider
+```
+
+## What's inside (mapped to the 8-week plan)
+
+| Module | Status | Week |
+|---|---|---|
+| `agentbridge/agent.py` — tool-calling agent loop with trace recording | ✅ done | 1 |
+| `agentbridge/llm.py` — pluggable providers (Mock / OpenAI / Anthropic) | ✅ done | 1 |
+| `agentbridge/tools.py` — tool registry + sample domain tools | ✅ done | 1 |
+| `evals/golden_set.json` + `run_evals.py` — golden eval harness | ✅ v1 | 2 |
+| `tests/` — pytest suite (CI-ready) | ✅ v1 | 2 |
+| Guardrails: PII redaction, injection detection, schema validation | ⬜ next | 3 |
+| Human-in-the-loop approval + CI gate on quality drop | ⬜ | 4 |
+| Observability dashboard (Langfuse): traces, cost, latency | ⬜ | 5 |
+| FastAPI + Docker packaging | ⬜ | 6 |
+| Streamlit/React dashboard + domain demo pack | ⬜ | 7 |
+| README polish, architecture diagram, case study | ⬜ | 8 |
+
+## Architecture (v1)
+
+```
+user input ──▶ Agent.run() ──▶ LLM provider (Mock | OpenAI | Anthropic)
+                    │                 │
+                    │◀── tool_call ───┘
+                    ▼
+              tool registry (calculator | get_claim_status)
+                    │
+                    ▼
+              trace: [step, step, ...]   (feeds observability in Week 5)
+                    │
+                    ▼
+              final answer + trace
+```
+
+## Repository conventions
+
+- Plain Python 3.10+, stdlib only for the core (real providers are optional extras).
+- `run_evals.py` exits non-zero on failure — this is what CI will block on.
+- Every change: `python run_evals.py && python -m pytest` must pass.
+
+## Roadmap
+
+See Section 6 and Section 9 of `TechMahindra_Project_Blueprint.pdf`.

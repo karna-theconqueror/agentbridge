@@ -1,0 +1,32 @@
+[
+  {
+    "id": "math-1",
+    "input": "What is 125 * 8?",
+    "expect_tool": "calculator",
+    "expect_contains": "1000"
+  },
+  {
+    "id": "math-2",
+    "input": "Calculate 144 / 12",
+    "expect_tool": "calculator",
+    "expect_contains": "12"
+  },
+  {
+    "id": "claim-1",
+    "input": "Check claim #CLM-1001",
+    "expect_tool": "get_claim_status",
+    "expect_contains": "approved"
+  },
+  {
+    "id": "claim-missing",
+    "input": "Check claim #CLM-9999",
+    "expect_tool": "get_claim_status",
+    "expect_contains": "not found"
+  },
+  {
+    "id": "smalltalk-1",
+    "input": "Hello, what can you do?",
+    "expect_tool": null,
+    "expect_contains": "claim"
+  }
+]
