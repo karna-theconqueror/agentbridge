@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agentbridge.hitl import Hitl, AgentWithHitl
@@ -36,3 +39,9 @@ def health():
 @app.get("/metrics")
 def metrics():
     return trace_logger.metrics()
+
+
+@app.get("/")
+def dashboard():
+    """Serve the observability dashboard at the root path."""
+    return FileResponse(Path(__file__).parent / "static" / "index.html")

@@ -39,3 +39,10 @@ def test_metrics_endpoint_reflects_runs():
     m = r.json()
     assert m["total_runs"] > 0
     assert "latency_ms" in m
+
+
+def test_dashboard_served_at_root():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "AgentBridge" in r.text
