@@ -30,8 +30,10 @@ python run_demo.py            # auto-detects the key and switches provider
 | `agentbridge/agent.py` — tool-calling agent loop with trace recording | ✅ done | 1 |
 | `agentbridge/llm.py` — pluggable providers (Mock / OpenAI / Anthropic) | ✅ done | 1 |
 | `agentbridge/tools.py` — tool registry + sample domain tools | ✅ done | 1 |
-| `evals/golden_set.json` + `run_evals.py` — golden eval harness | ✅ v1 | 2 |
-| `tests/` — pytest suite (CI-ready) | ✅ v1 | 2 |
+| `evals/golden_set.json` + `run_evals.py` — golden eval harness (20 cases) | ✅ v2 | 2 |
+| Two gates: functional (100%) + quality vs `evals/baseline.json` | ✅ | 2 |
+| `agentbridge/scoring.py` — heuristic judge + optional LLM-as-judge | ✅ | 2 |
+| `tests/` — pytest suite (17 tests, CI-ready) | ✅ v2 | 2 |
 | Guardrails: PII redaction, injection detection, schema validation | ⬜ next | 3 |
 | Human-in-the-loop approval + CI gate on quality drop | ⬜ | 4 |
 | Observability dashboard (Langfuse): traces, cost, latency | ⬜ | 5 |
@@ -58,7 +60,13 @@ user input ──▶ Agent.run() ──▶ LLM provider (Mock | OpenAI | Anthrop
 ## Repository conventions
 
 - Plain Python 3.10+, stdlib only for the core (real providers are optional extras).
-- `run_evals.py` exits non-zero on failure — this is what CI will block on.
+- `run_evals.py` runs **two gates** and exits non-zero if either fails:
+  1. *Functional* — every case must pass its hard checks (100% required).
+  2. *Quality* — judge score (correctness, conciseness, groundedness, helpfulness)
+     must not drop below `evals/baseline.json`. Accept a new floor with
+     `python run_evals.py --update-baseline`.
+- Judge is the deterministic heuristic offline; set `OPENAI_API_KEY` to
+  switch to an LLM-as-judge automatically.
 - Every change: `python run_evals.py && python -m pytest` must pass.
 
 ## Roadmap

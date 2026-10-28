@@ -37,17 +37,50 @@ class MockLLM:
 
     name = "mock"
 
+    # Word-based operators normalised into symbols before pattern matching,
+    # so "What is 15 plus 7?" behaves like "15 + 7".
+    WORD_OPERATORS = [
+        (re.compile(r"(-?\d+)\s*plus\s*(-?\d+)", re.I), r"\1 + \2"),
+        (re.compile(r"(-?\d+)\s*minus\s*(-?\d+)", re.I), r"\1 - \2"),
+        (re.compile(r"(-?\d+)\s*times\s*(-?\d+)", re.I), r"\1 * \2"),
+        (re.compile(r"(-?\d+)\s*divided\s+by\s*(-?\d+)", re.I), r"\1 / \2"),
+        (re.compile(r"divide\s+(-?\d+)\s+by\s+(-?\d+)", re.I), r"\1 / \2"),
+    ]
+
+    @staticmethod
+    def _final_from_tool_result(raw: str) -> str:
+        """Turn a raw tool result into a human sentence (no JSON leakage)."""
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return f"The tool returned: {raw}"
+        if isinstance(data, dict):
+            if "error" in data:
+                return f"Sorry, {data['error']}."
+            if "result" in data:
+                return f"The result is {data['result']}."
+            return "Here's what I found: " + ", ".join(
+                f"{k}: {v}" for k, v in data.items()
+            ) + "."
+        return str(data)
+
     def complete(self, messages: list[Message], tools: list[dict]) -> LLMResponse:
         last = messages[-1].content if messages else ""
 
         # A tool result coming back means we should produce the final answer.
         if messages and messages[-1].role == "tool":
-            return LLMResponse(content=f"Based on the tool result: {last}")
+            return LLMResponse(content=self._final_from_tool_result(last))
 
         text = last.strip()
 
-        math = re.search(r"(-?\d+(?:\.\d+)?)\s*([+\-*/])\s*(-?\d+(?:\.\d+)?)", text)
-        if math and any(w in text.lower() for w in ("calculate", "compute", "what is", "plus", "minus", "times", "divide", "/", "*", "+", "-")):
+        normalized = text
+        for pattern, repl in self.WORD_OPERATORS:
+            normalized = pattern.sub(repl, normalized)
+
+        math = re.search(r"(-?\d+(?:\.\d+)?)\s*([+\-*/])\s*(-?\d+(?:\.\d+)?)", normalized)
+        if math and any(w in text.lower() for w in (
+                "calculate", "compute", "what is", "plus", "minus", "times",
+                "divide", "/", "*", "+", "-")):
             return LLMResponse(tool_call=ToolCall(
                 name="calculator",
                 arguments={"expression": f"{math.group(1)} {math.group(2)} {math.group(3)}"},

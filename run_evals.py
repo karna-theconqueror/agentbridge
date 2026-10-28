@@ -1,9 +1,17 @@
-"""Golden eval harness — the CI gate.
+"""Golden eval harness — the CI gate (Week 2: two gates).
 
-Runs every case in evals/golden_set.json and exits non-zero on any failure,
-so a regression in prompts/tools/agent logic blocks the deploy.
+Gate 1 (functional): every case must pass its hard checks (tool + answer
+content). Any miss exits non-zero.
 
-    python run_evals.py
+Gate 2 (quality): the judge's mean quality score must not fall below the
+baseline recorded in evals/baseline.json. This catches "still works but got
+worse" regressions — wordy answers, raw JSON leaking, lost punctuation.
+
+    python run_evals.py                   # run both gates
+    python run_evals.py --update-baseline # accept current quality as the new floor
+
+Judge: heuristic by default (offline, deterministic); switches to an LLM
+judge automatically when OPENAI_API_KEY is set.
 """
 from __future__ import annotations
 
@@ -12,52 +20,89 @@ import sys
 from pathlib import Path
 
 from agentbridge.agent import Agent
+from agentbridge.scoring import (
+    CaseOutcome,
+    get_judge,
+    hard_check,
+    quality_gate,
+    summarize,
+)
 
 GOLDEN_PATH = Path(__file__).parent / "evals" / "golden_set.json"
+BASELINE_PATH = Path(__file__).parent / "evals" / "baseline.json"
 
 
 def load_cases() -> list[dict]:
     return json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
 
 
-def run_case(agent: Agent, case: dict) -> tuple[bool, str]:
-    result = agent.run(case["input"])
-
-    expected_tool = case.get("expect_tool")
-    if expected_tool:
-        if expected_tool not in result.tool_names:
-            return False, f"expected tool '{expected_tool}', used {result.tool_names}"
-
-    needle = case.get("expect_contains")
-    if needle and needle.lower() not in result.answer.lower():
-        return False, f"answer missing '{needle}': {result.answer!r}"
-
-    return True, "ok"
+def load_baseline() -> float | None:
+    if not BASELINE_PATH.exists():
+        return None
+    return float(json.loads(BASELINE_PATH.read_text(encoding="utf-8"))["min_quality"])
 
 
-def main() -> int:
+def save_baseline(score: float) -> None:
+    BASELINE_PATH.write_text(
+        json.dumps({"min_quality": round(score, 4)}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def main(argv: list[str]) -> int:
+    update_baseline = "--update-baseline" in argv
+
     cases = load_cases()
     agent = Agent()
-    passed = 0
+    judge = get_judge()
 
-    print(f"Running {len(cases)} golden cases (provider: {agent.provider.name})")
-    print("-" * 60)
+    print(f"Running {len(cases)} golden cases")
+    print(f"  provider : {agent.provider.name}")
+    print(f"  judge    : {judge.name}")
+    print("-" * 72)
+
+    outcomes: list[CaseOutcome] = []
     for case in cases:
-        ok, detail = run_case(agent, case)
-        passed += ok
-        mark = "PASS" if ok else "FAIL"
-        print(f"[{mark}] {case['id']:16} {detail}")
+        result = agent.run(case["input"])
+        failures = hard_check(case, result)
+        scores = judge.score(case, result)
+        outcomes.append(CaseOutcome(case_id=case["id"],
+                                    hard_failures=failures, scores=scores))
+        mark = "PASS" if not failures else "FAIL"
+        detail = "; ".join(failures) if failures else \
+            f"tools={result.tool_names or 'none'} quality={outcomes[-1].quality:.2f}"
+        print(f"[{mark}] {case['id']:24} {detail}")
 
-    score = passed / len(cases)
-    print("-" * 60)
-    print(f"Score: {passed}/{len(cases)} ({score:.0%})")
+    stats = summarize(outcomes)
+    print("-" * 72)
+    print(f"Gate 1 (functional) : {stats['hard_passed']}/{stats['cases']} "
+          f"({stats['hard_score']:.0%})")
+    crit = "  ".join(f"{k}={v:.2f}" for k, v in stats["per_criterion"].items())
+    print(f"Gate 2 (quality)    : {stats['quality_score']:.3f}   [{crit}]")
 
-    if score < 1.0:
-        print("GATE FAILED — fix before merging.")
-        return 1
-    print("GATE PASSED.")
-    return 0
+    exit_code = 0
+
+    if stats["hard_score"] < 1.0:
+        print("GATE 1 FAILED — functional regression, fix before merging.")
+        exit_code = 1
+
+    baseline = load_baseline()
+    if update_baseline:
+        save_baseline(stats["quality_score"])
+        print(f"Baseline updated to {stats['quality_score']:.3f}")
+    elif baseline is None:
+        print("No quality baseline yet — run with --update-baseline to record one.")
+    elif quality_gate(stats["quality_score"], baseline):
+        print(f"Gate 2 passed — quality {stats['quality_score']:.3f} >= baseline {baseline:.3f}.")
+    else:
+        print(f"GATE 2 FAILED — quality {stats['quality_score']:.3f} dropped below "
+              f"baseline {baseline:.3f}.")
+        exit_code = 1
+
+    if exit_code == 0:
+        print("ALL GATES PASSED.")
+    return exit_code
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
