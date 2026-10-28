@@ -33,8 +33,10 @@ python run_demo.py            # auto-detects the key and switches provider
 | `evals/golden_set.json` + `run_evals.py` — golden eval harness (20 cases) | ✅ v2 | 2 |
 | Two gates: functional (100%) + quality vs `evals/baseline.json` | ✅ | 2 |
 | `agentbridge/scoring.py` — heuristic judge + optional LLM-as-judge | ✅ | 2 |
-| `tests/` — pytest suite (17 tests, CI-ready) | ✅ v2 | 2 |
-| Guardrails: PII redaction, injection detection, schema validation | ⬜ next | 3 |
+| `tests/` — pytest suite (32 tests, CI-ready) | ✅ v3 | 2–3 |
+| `agentbridge/guardrails.py` — injection blocking, PII redaction, tool-output schema validation | ✅ | 3 |
+| Guardrails wired into agent loop (input / tool-output / answer checkpoints) | ✅ | 3 |
+| Guardrails: PII redaction, injection detection, schema validation | ✅ | 3 |
 | Human-in-the-loop approval + CI gate on quality drop | ⬜ | 4 |
 | Observability dashboard (Langfuse): traces, cost, latency | ⬜ | 5 |
 | FastAPI + Docker packaging | ⬜ | 6 |

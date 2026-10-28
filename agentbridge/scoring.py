@@ -44,6 +44,10 @@ def hard_check(case: dict, result: AgentResult) -> list[str]:
         if needle.lower() not in result.answer.lower():
             reasons.append(f"answer missing {needle!r}")
 
+    for needle in case.get("expect_not_contains") or []:
+        if needle.lower() in result.answer.lower():
+            reasons.append(f"answer must not contain {needle!r}")
+
     return reasons
 
 

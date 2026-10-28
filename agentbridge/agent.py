@@ -9,6 +9,7 @@ import json
 import time
 from dataclasses import dataclass, field
 
+from .guardrails import REFUSAL, Guardrails
 from .llm import LLMResponse, Message, get_provider
 from .tools import TOOL_SCHEMAS, run_tool
 
@@ -17,7 +18,7 @@ MAX_ITERATIONS = 5  # safety cap so a confused model can't spin forever
 
 @dataclass
 class TraceStep:
-    kind: str            # "llm" | "tool" | "final"
+    kind: str            # "llm" | "tool" | "guardrail" | "final"
     name: str = ""
     detail: str = ""
     latency_ms: float = 0.0
@@ -28,6 +29,7 @@ class AgentResult:
     answer: str
     trace: list[TraceStep] = field(default_factory=list)
     iterations: int = 0
+    blocked: bool = False
 
     @property
     def tool_names(self) -> list[str]:
@@ -35,14 +37,26 @@ class AgentResult:
 
 
 class Agent:
-    def __init__(self, provider=None, tools_schemas=TOOL_SCHEMAS, max_iterations=MAX_ITERATIONS):
+    def __init__(self, provider=None, tools_schemas=TOOL_SCHEMAS,
+                 max_iterations=MAX_ITERATIONS, guardrails=None):
         self.provider = provider or get_provider()
         self.tools_schemas = tools_schemas
         self.max_iterations = max_iterations
+        self.guardrails = guardrails if guardrails is not None else Guardrails()
 
     def run(self, user_input: str) -> AgentResult:
-        messages: list[Message] = [Message(role="user", content=user_input)]
         trace: list[TraceStep] = []
+
+        # ---- INPUT guardrail: injection blocks, PII gets masked
+        checked = self.guardrails.check_input(user_input)
+        if not checked.allowed:
+            trace.append(TraceStep(kind="guardrail",
+                                   detail=f"BLOCKED input (injection patterns: {checked.findings})"))
+            return AgentResult(answer=REFUSAL, trace=trace, iterations=0, blocked=True)
+        if checked.findings:
+            trace.append(TraceStep(kind="guardrail",
+                                   detail=f"redacted from input: {', '.join(checked.findings)}"))
+        messages: list[Message] = [Message(role="user", content=checked.text)]
 
         for iteration in range(1, self.max_iterations + 1):
             t0 = time.perf_counter()
@@ -56,15 +70,36 @@ class Agent:
                 t0 = time.perf_counter()
                 result = run_tool(tc.name, tc.arguments)
                 tool_ms = (time.perf_counter() - t0) * 1000
-                trace.append(TraceStep(kind="tool", name=tc.name,
-                                       detail=result, latency_ms=tool_ms))
+
+                # ---- TOOL guardrail: schema-validate + scrub PII in tool output
+                checked_tool = self.guardrails.check_tool_output(tc.name, result)
+                if not checked_tool.allowed:
+                    trace.append(TraceStep(kind="guardrail", name=tc.name,
+                                           detail=f"quarantined tool output: {checked_tool.findings}",
+                                           latency_ms=tool_ms))
+                    result = json.dumps({"error": f"{tc.name} output failed validation"})
+                else:
+                    if checked_tool.findings:
+                        trace.append(TraceStep(kind="guardrail", name=tc.name,
+                                               detail=f"scrubbed tool output: {', '.join(checked_tool.findings)}",
+                                               latency_ms=tool_ms))
+                    result = checked_tool.text
+                    trace.append(TraceStep(kind="tool", name=tc.name,
+                                           detail=result, latency_ms=tool_ms))
+
                 messages.append(Message(role="assistant",
                                         content=f"[tool_call:{tc.name}] {json.dumps(tc.arguments)}"))
                 messages.append(Message(role="tool", content=result))
                 continue
 
             # No tool call -> final answer.
+            # ---- OUTPUT guardrail: scrub PII before it reaches the user
             answer = response.content or "(empty response)"
+            checked_out = self.guardrails.check_output(answer)
+            if checked_out.findings:
+                trace.append(TraceStep(kind="guardrail",
+                                       detail=f"scrubbed from answer: {', '.join(checked_out.findings)}"))
+            answer = checked_out.text
             trace.append(TraceStep(kind="final", detail=answer, latency_ms=llm_ms))
             return AgentResult(answer=answer, trace=trace, iterations=iteration)
 

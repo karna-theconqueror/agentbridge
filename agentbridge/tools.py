@@ -80,3 +80,11 @@ def run_tool(name: str, arguments: dict) -> str:
         return fn(**arguments)
     except TypeError as exc:
         return json.dumps({"error": f"bad arguments for {name}: {exc}"})
+
+
+# Declared output contracts — enforced by the guardrails layer (Week 3).
+# {"error": ...} responses are always permitted (legitimate tool failures).
+TOOL_OUTPUT_SCHEMAS: dict[str, dict[str, str]] = {
+    "calculator": {"expression": "str", "result": "num"},
+    "get_claim_status": {"claim_id": "str", "status": "str"},
+}
