@@ -27,8 +27,17 @@ def invoke(req: PromptRequest):
     agent.hitl = Hitl({"calculator": lambda: approved})
 
     result = agent.run(req.prompt)
-    trace_logger.record(req.prompt, result)  # persist + aggregate for /metrics
-    return {"answer": result.answer, "iterations": result.iterations, "blocked": result.blocked}
+    rec = trace_logger.record(req.prompt, result)  # persist + aggregate for /metrics
+    return {
+        "answer": result.answer,
+        "iterations": result.iterations,
+        "blocked": result.blocked,
+        # extras for the dashboard (real per-run data):
+        "run_id": rec.run_id,
+        "latency_ms": rec.total_latency_ms,
+        "tools_used": rec.tools_used,
+        "guardrail_events": rec.guardrail_events,
+    }
 
 
 @app.get("/health")
