@@ -1,3 +1,4 @@
-# Core runs on stdlib only. Optional extras:
-openai>=1.40          # real provider (set OPENAI_API_KEY)
-pytest>=8.0           # test runner
+fastapi
+uvicorn[standard]
+pydantic
+openai>=1.40

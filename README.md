@@ -71,6 +71,28 @@ user input ──▶ Agent.run() ──▶ LLM provider (Mock | OpenAI | Anthrop
   switch to an LLM-as-judge automatically.
 - Every change: `python run_evals.py && python -m pytest` must pass.
 
+## Deploy locally (Docker + FastAPI)
+
+```bash
+docker build -t agentbridge .
+docker run -p 8000:8000 agentbridge
+```
+
+FastAPI exposes:
+
+- `GET /health` → `{"status":"ok"}`
+- `POST /invoke` with JSON `{ "prompt": "...", "hitl": true/false }`
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/invoke \
+     -H "Content-Type: application/json" \
+     -d '{"prompt":"What is 125 * 8?"}'
+```
+
+---
+
 ## Roadmap
 
 See Section 6 and Section 9 of `TechMahindra_Project_Blueprint.pdf`.
