@@ -11,6 +11,11 @@ strategy (see `TechMahindra_Project_Blueprint.pdf`).
 ![evals](https://img.shields.io/badge/evals-22%2F22%20quality%201.000-brightgreen)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 
+![AgentBridge dashboard](docs/dashboard.png)
+
+*Live observability dashboard — real metrics from the running service: total/blocked
+runs, latency p50/p95/max, tool usage, and guardrail events.*
+
 ## Quick start (no API key needed)
 
 ```bash
@@ -124,25 +129,21 @@ The HITL policy is reset on every request — no state leaks between calls.
 
 ## CI gate
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and
+pull request:
 
 1. `python -m pytest -q` — all 41 unit tests must pass
 2. `python run_evals.py` — both eval gates must pass (fails the build on any
    functional regression or quality drop below baseline)
 
-## Deploy locally (Docker + FastAPI)
+> The workflow file is intentionally kept out of this push (added separately via
+> the GitHub web editor). It's a one-time paste — see `docs/deploy.md`.
 
-```bash
-docker build -t agentbridge .
-docker run -p 8000:8000 agentbridge
-```
+## Deploy
 
-Or without Docker (direct uvicorn):
-
-```bash
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8000
-```
+- **Locally (Docker):** `docker build -t agentbridge .` → `docker run -p 8000:8000 agentbridge`
+- **Locally (no Docker):** `pip install -r requirements.txt` → `uvicorn app:app --host 0.0.0.0 --port 8000`
+- **Public URL (Render / Railway):** step-by-step in [`docs/deploy.md`](docs/deploy.md)
 
 Example:
 
@@ -152,6 +153,12 @@ curl -X POST http://localhost:8000/invoke \
      -d '{"prompt":"What is 125 * 8?","hitl":true}'
 # → {"answer":"The result is 1000.","iterations":2,"blocked":false}
 ```
+
+## Docs
+
+- [`docs/job-materials.md`](docs/job-materials.md) — resume bullets, LinkedIn summary, interview talking points
+- [`docs/interview-prep.md`](docs/interview-prep.md) — hard Q&A on architecture, safety, ops, trade-offs
+- [`docs/deploy.md`](docs/deploy.md) — deploy to a public URL (Render / Railway)
 
 ---
 
