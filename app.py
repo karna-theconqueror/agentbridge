@@ -5,26 +5,23 @@ from agentbridge.hitl import Hitl, AgentWithHitl
 
 app = FastAPI(title="AgentBridge API")
 
-# Default HITL policy – here we block the calculator tool for demo purposes
-hitl_policy = {"calculator": False}
-hitl = Hitl(hitl_policy)
+hitl = Hitl({"calculator": False})  # default: block calculator
 agent = AgentWithHitl(hitl=hitl)
 
 
 class PromptRequest(BaseModel):
     prompt: str
-    hitl: bool | None = None  # optional override per request
+    hitl: bool | None = None  # True = human approval gate enabled for the call
 
 
 @app.post("/invoke")
 def invoke(req: PromptRequest):
-    # Optional per‑request HITL override
     if req.hitl is not None:
-        # For demo: toggle calculator between blocked/allowed
-        agent.hitl = Hitl({"calculator": not req.hitl})
+        # hitl == True → enable the human gate (demo policy approves calculator)
+        agent.hitl = Hitl({"calculator": lambda: True}) if req.hitl else Hitl({"calculator": False})
 
     result = agent.run(req.prompt)
-    return {"answer": result.answer, "iterations": result.iterations}
+    return {"answer": result.answer, "iterations": result.iterations, "blocked": result.blocked}
 
 
 @app.get("/health")
