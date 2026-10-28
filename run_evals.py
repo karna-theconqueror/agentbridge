@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from agentbridge.agent import Agent
+from agentbridge.llm import MockLLM
 from agentbridge.scoring import (
     CaseOutcome,
     get_judge,
@@ -51,13 +52,17 @@ def save_baseline(score: float) -> None:
 
 def main(argv: list[str]) -> int:
     update_baseline = "--update-baseline" in argv
+    # Evals are pinned to the offline mock so the CI gate is deterministic and
+    # never hits the network — even when GEMINI_API_KEY is set for the API.
+    # Opt into a real model with: python run_evals.py --live
+    use_live = "--live" in argv
 
     cases = load_cases()
-    agent = Agent()
+    agent = Agent() if use_live else Agent(provider=MockLLM())
     judge = get_judge()
 
     print(f"Running {len(cases)} golden cases")
-    print(f"  provider : {agent.provider.name}")
+    print(f"  provider : {agent.provider.name}{' (live)' if use_live else ''}")
     print(f"  judge    : {judge.name}")
     print("-" * 72)
 

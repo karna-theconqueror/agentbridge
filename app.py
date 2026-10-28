@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from agentbridge.hitl import Hitl, AgentWithHitl
@@ -26,7 +26,25 @@ def invoke(req: PromptRequest):
     approved = bool(req.hitl)
     agent.hitl = Hitl({"calculator": lambda: approved})
 
-    result = agent.run(req.prompt)
+    try:
+        result = agent.run(req.prompt)
+    except Exception as exc:  # provider down / rate-limited / unreachable
+        # Fail gracefully with a clear message instead of a bare 500.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": str(exc),
+                "answer": "The model provider is temporarily unavailable. "
+                          "Please try again in a moment.",
+                "iterations": 0,
+                "blocked": False,
+                "run_id": None,
+                "latency_ms": 0.0,
+                "tools_used": [],
+                "guardrail_events": [],
+            },
+        )
+
     rec = trace_logger.record(req.prompt, result)  # persist + aggregate for /metrics
     return {
         "answer": result.answer,

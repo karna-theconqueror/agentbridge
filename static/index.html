@@ -332,22 +332,27 @@ async function invoke(prompt, hitl){
   if (!prompt) return;
   const btn = $('run'); btn.disabled = true; btn.textContent = 'Running…';
   try{
-    const r = await (await fetch('/invoke', {
+    const resp = await fetch('/invoke', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({prompt, hitl})
-    })).json();
+    });
+    const r = await resp.json();
     // latency chart
     latHist.push(r.latency_ms ?? 0); if (latHist.length>40) latHist.shift(); drawLat();
     // feed card
     if (feed.querySelector('.empty')) feed.innerHTML='';
     const card = document.createElement('div');
-    card.className = 'run-card' + (r.blocked?' blocked':'');
-    const badge = r.blocked ? '<span class="badge bad">BLOCKED</span>' : '<span class="badge ok">OK</span>';
+    const isErr = !resp.ok || r.error;
+    card.className = 'run-card' + ((r.blocked || isErr) ? ' blocked':'');
+    const badge = isErr ? '<span class="badge bad">ERROR</span>'
+      : r.blocked ? '<span class="badge bad">BLOCKED</span>'
+      : '<span class="badge ok">OK</span>';
     const tools = (r.tools_used||[]).map(t=>`<span class="tchip">${t}</span>`).join('');
     const guard = (r.guardrail_events||[]).length ? `<span style="color:var(--red)">⚠ ${r.guardrail_events.length} guardrail event(s)</span>` : '';
+    const errNote = r.error ? `<div class="rc-meta" style="color:var(--red)">${r.error}</div>` : '';
     card.innerHTML = `
       <div class="rc-top">${badge}<span class="rc-q">“${prompt}”</span></div>
-      <div class="rc-a">${r.answer}</div>
+      <div class="rc-a">${r.answer}</div>${errNote}
       <div class="rc-meta"><span>latency <b>${(r.latency_ms??0).toFixed(2)} ms</b></span>
         <span>steps <b>${r.iterations}</b></span>${guard}${tools}</div>`;
     feed.prepend(card);

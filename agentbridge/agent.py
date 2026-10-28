@@ -87,8 +87,11 @@ class Agent:
                     trace.append(TraceStep(kind="tool", name=tc.name,
                                            detail=result, latency_ms=tool_ms))
 
-                messages.append(Message(role="assistant",
-                                        content=f"[tool_call:{tc.name}] {json.dumps(tc.arguments)}"))
+                messages.append(Message(
+                    role="assistant",
+                    content=f"[tool_call:{tc.name}] {json.dumps(tc.arguments)}",
+                    thought_signature=tc.thought_signature,
+                ))
                 messages.append(Message(role="tool", content=result))
                 continue
 

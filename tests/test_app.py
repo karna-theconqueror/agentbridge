@@ -1,7 +1,14 @@
 """Regression tests for the FastAPI app endpoints (Week 4/5 wiring)."""
 from fastapi.testclient import TestClient
 
+import app as app_module
+from agentbridge.llm import MockLLM
 from app import app
+
+# Pin the module-level agent to the offline mock so these tests are
+# deterministic and never hit a live provider (e.g. Gemini) — even when an
+# API key is set in the environment.
+app_module.agent.provider = MockLLM()
 
 client = TestClient(app)
 

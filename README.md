@@ -21,7 +21,7 @@ runs, latency p50/p95/max, tool usage, and guardrail events.*
 ```bash
 python run_demo.py            # run the agent on sample tasks
 python run_evals.py           # run the golden eval suite (this is the CI gate)
-python -m pytest              # unit tests (41 tests)
+python -m pytest              # unit tests (54 tests)
 uvicorn app:app --host 0.0.0.0 --port 8000   # start API + dashboard
 ```
 
@@ -29,20 +29,32 @@ Then open **http://127.0.0.1:8000/** for the live dashboard, or
 **http://127.0.0.1:8000/docs** for Swagger UI.
 
 The default provider is a deterministic **MockLLM** so everything runs offline.
-Drop in a real model by setting an env var:
+Drop in a real model by setting an env var — the app auto-detects it:
 
 ```bash
 # Windows (PowerShell)
-$env:OPENAI_API_KEY = "sk-..."
-python run_demo.py            # auto-detects the key and switches provider
+$env:GEMINI_API_KEY = "AIza..."     # Google Gemini (REST, stdlib-only — no SDK)
+python run_demo.py                  # answers any question for real
+
+$env:OPENAI_API_KEY = "sk-..."      # or OpenAI
+python run_demo.py
 ```
+
+Optional: `$env:GEMINI_MODEL = "gemini-3.5-flash"` to pick a different model
+(default `gemini-3.6-flash`). Transient errors (429/5xx) are retried with the
+server's own `retryDelay`; if the provider is still down, `/invoke` returns a
+graceful `503` with a readable message instead of a stack trace.
+
+> **CI safety:** `run_evals.py` and the test suite are pinned to `MockLLM`, so
+> setting a key never makes the eval gate hit the network. Use
+> `python run_evals.py --live` to opt in to a real model.
 
 ## What's inside (mapped to the 8-week plan)
 
 | Module | Status | Week |
 |---|---|---|
 | `agentbridge/agent.py` — tool-calling agent loop with trace recording | ✅ done | 1 |
-| `agentbridge/llm.py` — pluggable providers (Mock / OpenAI / Anthropic) | ✅ done | 1 |
+| `agentbridge/llm.py` — pluggable providers (Mock / Gemini / OpenAI) | ✅ done | 1 |
 | `agentbridge/tools.py` — tool registry + sample domain tools | ✅ done | 1 |
 | `evals/golden_set.json` + `run_evals.py` — golden eval harness (22 cases) | ✅ done | 2 |
 | Two gates: functional (100%) + quality vs `evals/baseline.json` | ✅ done | 2 |
