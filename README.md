@@ -65,6 +65,7 @@ graceful `503` with a readable message instead of a stack trace.
 | `Dockerfile` + FastAPI service (`app.py`) | ✅ done | 4–6 |
 | `agentbridge/observability.py` — TraceLogger (JSONL persistence + aggregate metrics) | ✅ done | 5 |
 | `GET /metrics` — runs, blocked, tool usage, guardrail events, latency p50/p95/max | ✅ done | 5 |
+| `agentbridge/ratelimit.py` — per-client rate limiting (`429` + `Retry-After`) for public deploys | ✅ done | 6 |
 | `static/index.html` — live observability dashboard at `/` | ✅ done | 7 |
 | `tests/` — pytest suite (41 tests, CI-ready) | ✅ done | 1–7 |
 | `.github/workflows/ci.yml` — CI gate (pytest + evals) | ✅ done | 2 |

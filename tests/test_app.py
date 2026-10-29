@@ -3,12 +3,16 @@ from fastapi.testclient import TestClient
 
 import app as app_module
 from agentbridge.llm import MockLLM
+from agentbridge.ratelimit import RateLimiter
 from app import app
 
 # Pin the module-level agent to the offline mock so these tests are
 # deterministic and never hit a live provider (e.g. Gemini) — even when an
 # API key is set in the environment.
 app_module.agent.provider = MockLLM()
+# Rate limiting is exercised in test_ratelimit.py; disable it here so this
+# file's repeated /invoke calls can never trip the shared window.
+app_module.rate_limiter = RateLimiter(limit=0)
 
 client = TestClient(app)
 

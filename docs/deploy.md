@@ -41,6 +41,26 @@ Railway's free trial gives $5 credit; a small uvicorn service stays well within 
 
 ---
 
+## Required environment variable
+
+The live agent needs the model key **as a platform secret** — never in the repo:
+
+| Name | Required | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | yes (for real answers) | Platform → *Environment/Secrets*. Without it the app still runs on the offline MockLLM. |
+| `GEMINI_MODEL` | no | Pins one model. **Leave unset** to get automatic model failover when one model's quota runs out. |
+| `RATE_LIMIT_PER_MIN` | no (default `10`) | Per-client cap on `/invoke`. Set `0` to disable. |
+
+> **Set the rate limit.** A public URL gets discovered by scanners within hours,
+> and every un-throttled `/invoke` spends your free-tier quota. `/invoke` answers
+> `429` with a `Retry-After` header once a client is over budget; `/health`,
+> `/metrics` and the dashboard stay open.
+
+Also add a `PORT` note if your host binds differently — the Dockerfile already
+honours `${PORT}` (default `8000`).
+
+---
+
 ## One thing to know: metrics are per-instance
 
 The TraceLogger keeps aggregates **in memory** and appends to a local JSONL file.
