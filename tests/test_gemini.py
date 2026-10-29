@@ -127,3 +127,71 @@ def test_retry_delay_parsing():
     }})
     assert GeminiProvider._retry_delay(body) == 57.0
     assert GeminiProvider._retry_delay("no delay here") is None
+
+
+# ------------------------------------------------------------ model failover
+
+def _fake_request(outcomes):
+    """Build a _request stand-in that returns/raises from a scripted list."""
+    calls = []
+
+    def fake(self, model, payload):
+        calls.append(model)
+        outcome = outcomes[min(len(calls) - 1, len(outcomes) - 1)]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    fake.calls = calls
+    return fake
+
+
+OK_RESPONSE = {"candidates": [{"content": {"role": "model", "parts": [
+    {"text": "The capital of France is Paris."}]}}]}
+
+
+def test_failover_skips_rate_limited_model(monkeypatch):
+    """An exhausted model must be skipped, not fatal — and the winner promoted."""
+    p = GeminiProvider(api_key="k", model="exhausted")
+    p.models = ["exhausted", "healthy", "spare"]
+
+    exhausted = GeminiProvider.RateLimitedError("exhausted: quota exhausted, wait 155 min")
+    monkeypatch.setattr(GeminiProvider, "_request", _fake_request([exhausted, OK_RESPONSE]))
+
+    resp = p.complete([Message(role="user", content="hi")], tools=[])
+    assert resp.content.startswith("The capital")
+    # the healthy model was used and promoted to the front
+    assert p.models[0] == "healthy"
+    assert p.model == "healthy"
+
+
+def test_all_models_exhausted_raises_clear_error(monkeypatch):
+    p = GeminiProvider(api_key="k", model="a")
+    p.models = ["a", "b"]
+
+    exhausted = GeminiProvider.RateLimitedError("a: quota exhausted, wait 155 min")
+    monkeypatch.setattr(GeminiProvider, "_request", _fake_request([exhausted, exhausted]))
+
+    import pytest
+    with pytest.raises(RuntimeError, match="No Gemini model has quota"):
+        p.complete([Message(role="user", content="hi")], tools=[])
+
+
+def test_pinned_model_does_not_failover(monkeypatch):
+    """GEMINI_MODEL pins the model — no silent substitution, clearer error."""
+    p = GeminiProvider(api_key="k", model="pinned")
+    assert p.models == ["pinned"]
+
+    exhausted = GeminiProvider.RateLimitedError("pinned: quota exhausted, wait 155 min")
+    monkeypatch.setattr(GeminiProvider, "_request", _fake_request([exhausted]))
+
+    import pytest
+    with pytest.raises(RuntimeError, match="Unset GEMINI_MODEL"):
+        p.complete([Message(role="user", content="hi")], tools=[])
+
+
+def test_default_model_list_is_not_empty():
+    p = GeminiProvider(api_key="k")
+    assert p.models  # unpinned → the failover list
+    assert p.model == p.models[0]
+    assert "flash" in p.model

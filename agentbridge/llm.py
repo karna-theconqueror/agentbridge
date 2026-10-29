@@ -158,7 +158,11 @@ class GeminiProvider:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY is not set")
-        self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+        # A pinned model (explicit arg or GEMINI_MODEL) is the only one tried;
+        # otherwise fall back through DEFAULT_MODELS when quota runs out.
+        pinned = model or os.environ.get("GEMINI_MODEL")
+        self.models = [pinned] if pinned else list(self.DEFAULT_MODELS)
+        self.model = self.models[0]
         self.timeout = timeout
         self.retries = retries
         self.backoff = backoff
@@ -248,20 +252,27 @@ class GeminiProvider:
         except ValueError:
             return None
 
-    def complete(self, messages: list[Message], tools: list[dict]) -> LLMResponse:
-        body: dict = {"contents": self._to_contents(messages)}
-        if tools:
-            body["tools"] = self._to_gemini_tools(tools)
+    # Models tried in order when GEMINI_MODEL is not pinned. Free-tier quota
+    # is tracked per model, so one model being exhausted doesn't take the app
+    # down — we simply move to the next that still has room.
+    DEFAULT_MODELS = (
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash",
+    )
 
-        url = f"{self.BASE_URL}/{self.model}:generateContent"
-        payload = json.dumps(body).encode("utf-8")
+    class RateLimitedError(RuntimeError):
+        """Quota is exhausted for long enough that retrying now cannot help."""
 
-        # Transient errors (rate limit / overload) are retried with backoff;
-        # anything else fails immediately. Gemini tells us exactly how long to
-        # wait on 429/503 ("retryDelay": "57.3s") — we honour that instead of
-        # guessing, capped so a request can never hang forever.
+    def _request(self, model: str, payload: bytes) -> dict:
+        """POST to one model, retrying transient errors with the server's own
+        retryDelay. Raises RateLimitedError when waiting is pointless."""
+        url = f"{self.BASE_URL}/{model}:generateContent"
         last_err: Exception | None = None
         delay = self.backoff
+
         for attempt in range(self.retries + 1):
             if attempt:
                 time.sleep(delay)
@@ -273,23 +284,62 @@ class GeminiProvider:
             )
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                last_err = None
-                break
+                    return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
                 last_err = RuntimeError(f"Gemini API error {exc.code}: {detail}")
                 if exc.code not in self.RETRYABLE:
                     raise last_err from exc
-                delay = min(self._retry_delay(detail) or self.backoff * (2 ** attempt),
+                server_delay = self._retry_delay(detail)
+                if server_delay and server_delay > self.max_delay:
+                    # e.g. an exhausted daily quota asking us to wait hours —
+                    # retrying sooner cannot help, so fail fast (and let the
+                    # caller fall back to another model).
+                    raise self.RateLimitedError(
+                        f"{model}: quota exhausted, API asked us to wait "
+                        f"~{server_delay / 60:.0f} min"
+                    ) from exc
+                delay = min(server_delay or self.backoff * (2 ** attempt),
                             self.max_delay)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 # network blip or read timeout — retryable
                 reason = getattr(exc, "reason", exc)
                 last_err = RuntimeError(f"Gemini API unreachable: {reason}")
                 delay = min(self.backoff * (2 ** attempt), self.max_delay)
-        if last_err is not None:
-            raise last_err
+
+        raise last_err if last_err else RuntimeError(f"Gemini request to {model} failed")
+
+    def complete(self, messages: list[Message], tools: list[dict]) -> LLMResponse:
+        body: dict = {"contents": self._to_contents(messages)}
+        if tools:
+            body["tools"] = self._to_gemini_tools(tools)
+        payload = json.dumps(body).encode("utf-8")
+
+        # Try each model in turn; a rate-limited one is skipped (not fatal).
+        # The first model that answers is promoted to the front so we don't
+        # pay the failover cost on every request.
+        rate_limited: list[str] = []
+        data: dict | None = None
+        for idx, model in enumerate(self.models):
+            try:
+                data = self._request(model, payload)
+            except self.RateLimitedError as exc:
+                rate_limited.append(str(exc))
+                continue
+            if idx:
+                self.models.insert(0, self.models.pop(idx))
+                self.model = self.models[0]
+            break
+
+        if data is None:
+            if len(self.models) == 1:
+                raise RuntimeError(
+                    f"Gemini rate limit exceeded — {rate_limited[0]}. "
+                    f"Unset GEMINI_MODEL to allow automatic failover."
+                )
+            raise RuntimeError(
+                "No Gemini model has quota right now. " + "; ".join(rate_limited)
+            )
 
         # pick the first part: either a functionCall or text
         candidates = data.get("candidates") or []
